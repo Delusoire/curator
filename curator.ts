@@ -1,6 +1,6 @@
-import { parse } from "https://deno.land/x/css@0.3.0/mod.ts";
+import postcss from "https://esm.sh/postcss";
 
-const DIST_THRESHOLD = 0.1;
+const DIST_THRESHOLD = 0.1 - Number.EPSILON;
 const COMPLEXITY_CEILING = 100000;
 const PENALTY_FN = (delta: number) => 1 - (1 / (1 + (delta / 2) ** 2));
 
@@ -18,12 +18,11 @@ const selectors12Dist: Record<Selector, Record<Selector, number>> = {};
 let selectors12DistProgress = 0;
 const selectors12DistProgressSize = Math.trunc(selectors12DistSize / 50);
 for (const [selector1, properties1] of Object.entries(styles1)) {
+   selectors12Dist[selector1] = {};
    for (const [selector2, properties2] of Object.entries(styles2)) {
       const dist = selectorDist(properties1, properties2);
-      selectors12Dist[selector1] ??= {};
       selectors12Dist[selector1][selector2] = dist;
-      selectors12DistProgress++;
-      if (selectors12DistProgress % selectors12DistProgressSize === 0) {
+      if (selectors12DistProgress++ % selectors12DistProgressSize === 0) {
          console.log(selectors12DistProgress / selectors12DistSize);
       }
    }
@@ -32,10 +31,11 @@ for (const [selector1, properties1] of Object.entries(styles1)) {
 console.log("✅ Selectors distance matrix calculated");
 
 const classes12DistSize = Object.keys(classes1).length * Object.keys(classes2).length;
-const classes12Dist = new Array<[string, string, number]>(classes12DistSize);
+const classes12Dist: Record<string, Record<string, number>> = {};
 let classes12DistProgress = 0;
 const classes12DistProgressSize = Math.trunc(classes12DistSize / 50);
 for (const [class1, selectors1] of Object.entries(classes1)) {
+   classes12Dist[class1] = {};
    for (const [class2, selectors2] of Object.entries(classes2)) {
       const selectorKeys1 = Object.keys(selectors1);
       const selectorKeys2 = Object.keys(selectors2);
@@ -58,8 +58,8 @@ for (const [class1, selectors1] of Object.entries(classes1)) {
          minDist = Math.min(minDist, totalDist / minDistWeight);
       }
       const dist = (minDist + penalty * alpha) / (1 + alpha);
-      classes12Dist[classes12DistProgress++] = [class1, class2, dist];
-      if (classes12DistProgress % classes12DistProgressSize === 0) {
+      classes12Dist[class1][class2] = dist;
+      if (classes12DistProgress++ % classes12DistProgressSize === 0) {
          console.log(classes12DistProgress / classes12DistSize);
       }
    }
@@ -67,10 +67,46 @@ for (const [class1, selectors1] of Object.entries(classes1)) {
 
 console.log("✅ Classes distance matrix calculated");
 
-const classPairsArray = classes12Dist.toSorted((a, b) => b[2] - a[2]);
-const classPairs = Object.fromEntries(classPairsArray.filter(([, , dist]) => dist < DIST_THRESHOLD));
+const classPairsArray = Object.entries(classes12Dist)
+   .flatMap(([class1, classes2Dist]) =>
+      Object.entries(classes2Dist)
+         .map(([class2, dist]) => [class1, class2, dist] as const)
+   );
 
-await Deno.writeTextFile("all-pairs-dist.json", JSON.stringify(classPairsArray.toReversed()));
+const classes1Keys = new Set(Object.keys(classes1));
+const classes2Keys = new Set(Object.keys(classes2));
+const selectedClassPairs = Object.entries(classes12Dist).map(([class1, classes2Dist]) => {
+   const classes2DistArray = Object.entries(classes2Dist).toSorted((a, b) => {
+      let d = a[1] - b[1];
+      if (d) {
+         return d;
+      }
+
+      if (a[0] === class1) {
+         d--;
+      }
+      if (b[0] === class1) {
+         d++;
+      }
+      if (d) {
+         return d;
+      }
+
+      if (classes1Keys.has(a[0])) {
+         d++;
+      }
+      if (classes1Keys.has(b[0])) {
+         d--;
+      }
+      return d;
+   });
+
+   return [class1, ...classes2DistArray[0]] as const;
+});
+
+const classPairs = Object.fromEntries(selectedClassPairs.filter(([, , dist]) => dist < DIST_THRESHOLD));
+
+await Deno.writeTextFile("all-pairs-dist.json", JSON.stringify(classPairsArray));
 await Deno.writeTextFile("pairs.json", JSON.stringify(classPairs));
 
 // ...
@@ -82,19 +118,15 @@ type Properties = Record<Property, Value>;
 type Styles = Record<Selector, Properties>;
 
 function parseCss(css: string): Styles {
-   const ast = parse(css);
+   const root = postcss.parse(css);
    const styles: Record<string, Record<string, string>> = {};
-   for (const rule of ast.stylesheet.rules) {
-      if (rule.type === "rule") {
-         const selector = rule.selectors.join(",");
-         styles[selector] = {};
-         for (const declaration of rule.declarations) {
-            if (declaration.type === "property" && declaration.name && declaration.value) {
-               styles[selector][declaration.name] = declaration.value;
-            }
-         }
-      }
-   }
+   root.walkRules((rule) => {
+      const selector = rule.selectors.join(",");
+      styles[selector] = {};
+      rule.walkDecls((decl) => {
+         styles[selector][decl.prop] = decl.value;
+      });
+   });
    return styles;
 }
 
