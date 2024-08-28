@@ -1,4 +1,5 @@
 import postcss from "https://esm.sh/postcss";
+import { ensureDir } from "jsr:@std/fs/ensure-dir";
 
 const DIST_THRESHOLD = 0.1 - Number.EPSILON;
 const COMPLEXITY_CEILING = 100000;
@@ -114,11 +115,12 @@ const classPairs = Object.fromEntries(
 	selectedClassPairs.filter(([, , dist]) => dist < DIST_THRESHOLD),
 );
 
+await ensureDir("out");
 await Deno.writeTextFile(
-	"all-pairs-dist.json",
+	"out/all-pairs-dist.json",
 	JSON.stringify(classPairsArray),
 );
-await Deno.writeTextFile("pairs.json", JSON.stringify(classPairs));
+await Deno.writeTextFile("out/pairs.json", JSON.stringify(classPairs));
 
 // ...
 
