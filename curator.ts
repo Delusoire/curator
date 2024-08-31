@@ -1,5 +1,6 @@
 import postcss from "https://esm.sh/postcss";
 import { ensureDir } from "jsr:@std/fs/ensure-dir";
+import { levenshteinDistance } from "jsr:@std/text";
 
 const DIST_THRESHOLD = 0.1 - Number.EPSILON;
 const COMPLEXITY_CEILING = 100000;
@@ -171,7 +172,7 @@ function selectorDist(properties1: Properties, properties2: Properties) {
 	for (const prop of intersection) {
 		const string1 = properties1[prop];
 		const string2 = properties2[prop];
-		totalDist += levenshteinDistance(string1, string2);
+		totalDist += normalizedLevenshteinDistance(string1, string2);
 	}
 	return totalDist / union.size;
 }
@@ -215,43 +216,43 @@ function* zipCombinations<A, B>(
 	}
 }
 
-function levenshteinDistance(string1: string, string2: string) {
-	return levenshtein(string1, string2) /
+function normalizedLevenshteinDistance(string1: string, string2: string) {
+	return levenshteinDistance(string1, string2) /
 		Math.max(string1.length, string2.length);
 }
 
-function levenshtein(a: string, b: string) {
-	const an = a.length;
-	const bn = b.length;
-	if (an === 0) {
-		return bn;
-	}
-	if (bn === 0) {
-		return an;
-	}
+// function levenshteinDistance(a: string, b: string) {
+// 	const an = a.length;
+// 	const bn = b.length;
+// 	if (an === 0) {
+// 		return bn;
+// 	}
+// 	if (bn === 0) {
+// 		return an;
+// 	}
 
-	const matrix = Array.from(
-		{ length: an + 1 },
-		(_, i) => Array(bn + 1).fill(0),
-	);
+// 	const matrix = Array.from(
+// 		{ length: an + 1 },
+// 		(_, i) => Array(bn + 1).fill(0),
+// 	);
 
-	for (let i = 0; i <= an; i++) {
-		matrix[i][0] = i;
-	}
-	for (let j = 0; j <= bn; j++) {
-		matrix[0][j] = j;
-	}
+// 	for (let i = 0; i <= an; i++) {
+// 		matrix[i][0] = i;
+// 	}
+// 	for (let j = 0; j <= bn; j++) {
+// 		matrix[0][j] = j;
+// 	}
 
-	for (let i = 1; i <= an; i++) {
-		for (let j = 1; j <= bn; j++) {
-			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-			matrix[i][j] = Math.min(
-				matrix[i - 1][j] + 1, // Deletion
-				matrix[i][j - 1] + 1, // Insertion
-				matrix[i - 1][j - 1] + cost, // Substitution
-			);
-		}
-	}
+// 	for (let i = 1; i <= an; i++) {
+// 		for (let j = 1; j <= bn; j++) {
+// 			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+// 			matrix[i][j] = Math.min(
+// 				matrix[i - 1][j] + 1, // Deletion
+// 				matrix[i][j - 1] + 1, // Insertion
+// 				matrix[i - 1][j - 1] + cost, // Substitution
+// 			);
+// 		}
+// 	}
 
-	return matrix[an][bn];
-}
+// 	return matrix[an][bn];
+// }
